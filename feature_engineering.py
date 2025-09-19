@@ -45,6 +45,7 @@ import neurokit2 as nk
 import heartpy as hp
 
 from collections import Counter
+import traceback
 
 # define global variables, for the DREAMT dataset
 ALL_LABELS = [
@@ -894,6 +895,7 @@ def HRV_summary(segment_df, segment_seconds=30, freq=64):
     # if bvp.shape[0] != segment_seconds * freq:
     #     print(bvp.shape)
     try:
+        # bvp signal in segment_df -> single row, dataframe, feature
         results = nk.ppg_analyze(signals, sampling_rate=freq)
         for hrv_fn in HRV_feature_names:
             HRV_features_dict[hrv_fn] = results.loc[0, hrv_fn]
@@ -909,6 +911,8 @@ def HRV_summary(segment_df, segment_seconds=30, freq=64):
         HRV_features_dict["HF_normalized_power"] = (
             results.loc[0, "HRV_HFn"] * normalized_power
         )
+        # New feature added
+        HRV_features_dict["LFHF_frequency_power_ratio"] = HRV_features_dict["LF_frequency_power"]/HRV_features_dict["HF_frequency_power"] if HRV_features_dict["HF_frequency_power"] != 0 else np.nan
     except:
         error_code = -1
 
@@ -978,6 +982,7 @@ def EDA_summary(segment_df):
             "max_SCR_Amplitude": np.nan,
             "max_SCR_RiseTime": np.nan,
             "max_SCR_RecoveryTime": np.nan,
+            "SCR_PeakCount" : np.nan,
         }
 
     signals = pd.DataFrame({"EDA_Raw": eda_signal, "EDA_Clean": eda_cleaned})
@@ -996,6 +1001,7 @@ def EDA_summary(segment_df):
             x = x[~np.isnan(x)]
             features_dict["".join(["mean_", k])] = np.mean(x)
             features_dict["".join(["max_", k])] = np.max(x)
+        features_dict["SCR_PeakCount"] = info["SCR_PeakCount"]
     except:
         features_dict = {
             "mean_SCR_Height": np.nan,
@@ -1006,6 +1012,7 @@ def EDA_summary(segment_df):
             "max_SCR_Amplitude": np.nan,
             "max_SCR_RiseTime": np.nan,
             "max_SCR_RecoveryTime": np.nan,
+            "SCR_PeakCount" : np.nan,
         }
 
     return features_dict
@@ -1228,6 +1235,138 @@ def extract_domain_features(
 
     return domain_features_df
 
+def extract_domain_features_different_sampling_strategy(
+    sid,
+    data_folder="/whole_dfs",
+    segment_seconds=30,
+    overlap=False,
+    save_folder_dir="./fe_dataframes_whole_study/",
+):
+    """
+    Extract domain features for 1 subject, using already aggregated dataset
+
+    Parameters
+    ----------
+    sid : str
+        string of subject id
+    segment_seconds : int
+        integer indicating the length of unit epoch to extract features from
+    overlap: boolean
+        whether there should be overlap between windows,
+        length of overlap must be 30
+
+    Returns
+    -------
+    features_df : pandas.DataFrame
+        dataframe of domain features per segment, together with labels
+    """
+    df_dir = "{}/{}_whole_df.csv".format(data_folder, sid)
+
+    # Check if the folder exists
+    if not os.path.exists(save_folder_dir):
+        # Create the folder
+        os.makedirs(save_folder_dir)
+
+    df = pd.read_csv(df_dir)
+    df = preprocess_ALL_SIGNALS(df)
+
+    epoch_length = segment_seconds * 64
+    # cut the first segments that are not increment of 64*30
+    index = (
+        np.where(df.Sleep_Stage == "W")[0][0] if np.any(df.Sleep_Stage == "W") else None
+    )
+    if index is not None:
+        length_to_cut = int(index % 1920)
+        df = df.iloc[length_to_cut:(length_to_cut+64*12*3600),]
+    else:
+        pass
+    df = df.reset_index(drop=True)
+
+    # start feature extraction
+    example_segment = df.iloc[:epoch_length, :]
+    example_fe_dict, error_code = fe_per_segment(
+        example_segment, segment_seconds=segment_seconds
+    )
+    if error_code < 0:
+        print("First segment has error ")
+    # num_errors = 0
+    column_names = list(example_fe_dict.keys())
+    column_names.append("sid")
+    num_segments = int(df.shape[0] / epoch_length)
+
+    domain_features_df = pd.DataFrame(
+        columns=column_names, index=np.arange(num_segments)
+    )
+
+    offset = 0
+    # New variables to hold upsampled feature values
+    hrv_sdnn, hrv_rmssd, lfhf_ratio = np.nan, np.nan, np.nan
+    # Different time windowing strategy
+    window_hrv_freq = 300
+    window_hrv_time = 60
+    iterating_tick_hrv_freq = window_hrv_freq/segment_seconds if segment_seconds!=0 else 1
+    iterating_tick_hrv_time = window_hrv_time/segment_seconds if segment_seconds!=0 else 1
+    for i in tqdm(range(num_segments), desc=f"Processing Features for {sid}"):
+        # windowed features for lfhf_ratio within window_hrv_freq
+        if i % iterating_tick_hrv_freq == 0:
+            start_hrv_freq = int(i * epoch_length + offset)
+            end_hrv_freq = int((i + iterating_tick_hrv_freq) * epoch_length + offset)
+            if end_hrv_freq <= df.shape[0]:
+                segment_df_hrv_freq = df.iloc[start_hrv_freq:end_hrv_freq].reset_index(drop=True)
+                features_hrv_freq, error_code = fe_per_segment(segment_df_hrv_freq, segment_seconds=window_hrv_freq)
+                lfhf_ratio = features_hrv_freq.get('LFHF_frequency_power_ratio', np.nan)
+
+        # windowed features for hrv_sdnn & hrv_rmssd within window_hrv_time
+        if i % iterating_tick_hrv_time == 0:
+            start_hrv_time = int(i * epoch_length + offset)
+            end_hrv_time = int((i + iterating_tick_hrv_time) * epoch_length + offset)
+            if end_hrv_time <= df.shape[0]:
+                segment_df_hrv_time = df.iloc[start_hrv_time:end_hrv_time].reset_index(drop=True)
+                features_hrv_time, error_code = fe_per_segment(segment_df_hrv_time, segment_seconds=window_hrv_time)
+                hrv_sdnn = features_hrv_time.get('HRV_SDNN', np.nan)
+                hrv_rmssd = features_hrv_time.get('HRV_RMSSD', np.nan)
+
+        # time window from default settings
+        segment_df = df.iloc[
+            (i * epoch_length + offset) : ((i + 1) * epoch_length + offset), :
+        ]
+        segment_df = segment_df.reset_index(drop=True)
+        if segment_df.shape[0] == segment_seconds * 64:
+            try:
+                segment_fe_dict, error_code = fe_per_segment(
+                    segment_df, segment_seconds=segment_seconds
+                )
+            except TypeError:
+                list_stages = segment_df.Sleep_Stage.tolist()
+                segment_df.Sleep_Stage = segment_df.Sleep_Stage.fillna(0)
+                counts = Counter(list_stages)
+                offset += counts[list_stages[0]]
+                segment_df = df.iloc[
+                    (i * epoch_length + offset) : ((i + 1) * epoch_length + offset), :
+                ]
+                segment_df = segment_df.reset_index(drop=True)
+                segment_fe_dict, error_code = fe_per_segment(segment_df)
+            except AssertionError:
+                list_stages = segment_df.Sleep_Stage.tolist()
+                counts = Counter(list_stages)
+                offset += counts[list_stages[0]]
+                segment_df = df.iloc[
+                    (i * epoch_length + offset) : ((i + 1) * epoch_length + offset), :
+                ]
+                segment_df = segment_df.reset_index(drop=True)
+                segment_fe_dict, error_code = fe_per_segment(segment_df)
+
+        segment_fe_dict['LFHF_frequency_power_ratio'] = lfhf_ratio
+        segment_fe_dict['HRV_SDNN'] = hrv_sdnn
+        segment_fe_dict['HRV_RMSSD'] = hrv_rmssd
+        domain_features_df.loc[i] = segment_fe_dict
+
+    domain_features_df["sid"] = np.repeat(sid, num_segments)
+    domain_features_df.to_csv(
+        save_folder_dir + "/{}_domain_features_df.csv".format(sid), index=False
+    )
+
+    return domain_features_df
 
 def fe_whole_night_all_sids(info_dir, data_folder,save_folder_dir):
     """
@@ -1339,20 +1478,26 @@ def test_fe_all_subjects(info_dir, data_folder, save_folder_dir):
     for sid in list_sids:
         print(sid)
         try:
-            extract_domain_features(
+            extract_domain_features_different_sampling_strategy(
                 sid, data_folder=data_folder, segment_seconds=30, save_folder_dir= save_folder_dir
             )
         except:
-            print("ERROR")
+            print("ERROR {}: {}".format(sid,traceback.format_exc()))
             error_sids.append(sid)
     return error_sids
 
 
 def main():
     error_sids = test_fe_all_subjects(
-        info_dir="dataset_sample/participant_info.csv",
-        data_folder="dataset_sample/E4_aggregate/",
-        save_folder_dir="dataset_sample/features_df/",
+#        Single
+        info_dir="../dataset/test_participant_info.csv",
+        data_folder="../dataset/testData_single",
+        save_folder_dir="../dataset/testFeatures_single"
+
+#        All
+#        info_dir="../dataset/participant_info.csv",
+#        data_folder="../dataset/data_64Hz",
+#        save_folder_dir="../dataset/features_30secWindow_All
     )
     return 0
 
