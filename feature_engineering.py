@@ -925,6 +925,9 @@ def HRV_summary(segment_df, segment_seconds=30, freq=64):
     HRV_features_dict["HR_range"] = segment_df.HR.max() - segment_df.HR.min()
     HRV_features_dict["HR_std"] = segment_df.HR.std()
 
+    # New feature added
+    HRV_features_dict["HR_Coefficient_Variation"] = 100 * HRV_features_dict["HR_std"] / HRV_features_dict["HR_mean"] if HRV_features_dict["HR_mean"] != 0 else np.nan
+
     HRV_features_dict["BVP_mean"] = segment_df.BVP.mean()
     HRV_features_dict["BVP_median"] = segment_df.BVP.median()
     HRV_features_dict["BVP_max"] = segment_df.BVP.max()
@@ -1369,10 +1372,10 @@ def extract_domain_features_different_sampling_strategy(
     # )
 
     # Filter out the features we want
-    columns_to_keep = ['sid','SCR_PeakCount', 'mean_SCR_Amplitude','HR_mean','HR_std','ACC_INDEX','LFHF_frequency_power_ratio','HRV_SDNN','HRV_RMSSD','BVP_mean','BVP_std']
+    columns_to_keep = ['sid','SCR_PeakCount', 'mean_SCR_Amplitude','HR_mean','HR_std','HR_Coefficient_Variation','ACC_INDEX','LFHF_frequency_power_ratio','HRV_SDNN','HRV_RMSSD','BVP_mean','BVP_std']
     osa_features_df = domain_features_df[columns_to_keep]
     osa_features_df.to_csv(
-        save_folder_dir + "/{}_domain_features_30sec_window.csv".format(sid), index=False
+        save_folder_dir + "/domain_features_30sec_window_{}.csv".format(sid), index=False
     )
     return osa_features_df
 
@@ -1442,6 +1445,119 @@ def fe_whole_night_all_sids(info_dir, data_folder,save_folder_dir):
 
     return fe_df
 
+def extract_30min_stats(df: pd.DataFrame, rows_per_30min: int = 60, save_folder_dir="./fe_dataframes_whole_study/") -> pd.DataFrame:
+    """
+    Aggregate 30-second feature rows into 30-minute windows.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input with columns:
+        ['sid','SCR_PeakCount','mean_SCR_Amplitude','HR_mean','HR_std',
+         'HR_Coefficient_Variation','ACC_INDEX','LFHF_frequency_power_ratio',
+         'HRV_SDNN','HRV_RMSSD','BVP_mean','BVP_std'].
+        Each row summarizes a 30-second window.
+    rows_per_30min : int
+        Number of rows per 30-minute block. Default 60.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per (sid, 30-minute window) with the following aggregates:
+          - SCR_PeakCount: sum, mean
+          - mean_SCR_Amplitude: mean, max
+          - HR_mean: mean, std, max, min, range
+          - HR_std: mean, range
+          - HR_Coefficient_Variation: mean, max, min
+          - LFHF_frequency_power_ratio: mean, max, min, std
+          - HRV_SDNN: mean, max, min, median
+          - HRV_RMSSD: mean, max, min, median
+          - BVP_mean: mean, max, min
+          - BVP_std: mean, max, min
+    """
+    df = df.copy()
+
+    # Unique sid check
+    unique_sids = df['sid'].dropna().unique()
+    if len(unique_sids) != 1:
+        raise ValueError(f"Expected exactly one sid, found {len(unique_sids)}: {unique_sids!r}")
+    sid_val = unique_sids[0]
+
+    # Validate columns (ACC_INDEX is allowed to be present but not aggregated)
+    required = {
+        'sid','SCR_PeakCount','mean_SCR_Amplitude','HR_mean','HR_std',
+        'HR_Coefficient_Variation','LFHF_frequency_power_ratio',
+        'HRV_SDNN','HRV_RMSSD','BVP_mean','BVP_std'
+    }
+    missing = sorted(required - set(df.columns))
+
+    if missing:
+        raise KeyError(f"Missing required columns: {missing}")
+
+    def _range(s: pd.Series) -> float:
+        return float(np.nanmax(s) - np.nanmin(s))
+
+    # Build named aggregations
+    agg = dict(
+        SCR_PeakCount_sum=('SCR_PeakCount','sum'),
+        SCR_PeakCount_mean=('SCR_PeakCount','mean'),
+
+        mean_SCR_Amplitude_mean=('mean_SCR_Amplitude','mean'),
+        mean_SCR_Amplitude_max=('mean_SCR_Amplitude','max'),
+
+        HR_mean_mean=('HR_mean','mean'),
+        HR_mean_std=('HR_mean','std'),
+        HR_mean_max=('HR_mean','max'),
+        HR_mean_min=('HR_mean','min'),
+        HR_mean_range=('HR_mean', _range),
+
+        HR_std_mean=('HR_std','mean'),
+        HR_std_range=('HR_std', _range),
+
+        HR_Coefficient_Variation_mean=('HR_Coefficient_Variation','mean'),
+        HR_Coefficient_Variation_max=('HR_Coefficient_Variation','max'),
+        HR_Coefficient_Variation_min=('HR_Coefficient_Variation','min'),
+
+        LFHF_frequency_power_ratio_mean=('LFHF_frequency_power_ratio','mean'),
+        LFHF_frequency_power_ratio_max=('LFHF_frequency_power_ratio','max'),
+        LFHF_frequency_power_ratio_min=('LFHF_frequency_power_ratio','min'),
+        LFHF_frequency_power_ratio_std=('LFHF_frequency_power_ratio','std'),
+
+        HRV_SDNN_mean=('HRV_SDNN','mean'),
+        HRV_SDNN_max=('HRV_SDNN','max'),
+        HRV_SDNN_min=('HRV_SDNN','min'),
+        HRV_SDNN_median=('HRV_SDNN','median'),
+
+        HRV_RMSSD_mean=('HRV_RMSSD','mean'),
+        HRV_RMSSD_max=('HRV_RMSSD','max'),
+        HRV_RMSSD_min=('HRV_RMSSD','min'),
+        HRV_RMSSD_median=('HRV_RMSSD','median'),
+
+        BVP_mean_mean=('BVP_mean','mean'),
+        BVP_mean_max=('BVP_mean','max'),
+        BVP_mean_min=('BVP_mean','min'),
+
+        BVP_std_mean=('BVP_std','mean'),
+        BVP_std_max=('BVP_std','max'),
+        BVP_std_min=('BVP_std','min'),
+    )
+
+    # compute 0-based window index (every 60 rows = 30 min)
+    window_index = (df.index // rows_per_30min).astype('int64')
+
+    # Aggregate by window only (sid is constant); then add sid back
+    gb = df.groupby(window_index, sort=False).agg(**agg).reset_index(names=['window_index'])
+    gb.insert(0, 'sid', sid_val)
+
+    # slice the last row
+    gb_sliced = gb[:-1]
+
+    # df to csv
+    gb_sliced.to_csv(
+        save_folder_dir + "/domain_statistic_features_30min_window_{}.csv".format(sid_val), index=False
+    )
+
+    return gb_sliced
 
 def test_domain_feature_engineering(sid):
     """
@@ -1486,18 +1602,19 @@ def test_fe_all_subjects(info_dir, data_folder, save_folder_dir):
     for sid in list_sids:
         print(sid)
         try:
-            extract_domain_features_different_sampling_strategy(
+            osa_features_30sec_df = extract_domain_features_different_sampling_strategy(
                 sid, data_folder=data_folder, segment_seconds=30, save_folder_dir= save_folder_dir
             )
+            extract_30min_stats(osa_features_30sec_df, save_folder_dir=save_folder_dir)
         except:
             print("ERROR {}: {}".format(sid,traceback.format_exc()))
             error_sids.append(sid)
     return error_sids
 
-
 def main():
+
     error_sids = test_fe_all_subjects(
-#        Single
+    #    Single
         info_dir="../dataset/test_participant_info.csv",
         data_folder="../dataset/testData_single",
         save_folder_dir="../dataset/testFeatures_single"
