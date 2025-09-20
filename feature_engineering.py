@@ -1362,11 +1362,19 @@ def extract_domain_features_different_sampling_strategy(
         domain_features_df.loc[i] = segment_fe_dict
 
     domain_features_df["sid"] = np.repeat(sid, num_segments)
-    domain_features_df.to_csv(
-        save_folder_dir + "/{}_domain_features_df.csv".format(sid), index=False
-    )
 
-    return domain_features_df
+    # Original df to csv
+    # domain_features_df.to_csv(
+    #     save_folder_dir + "/{}_domain_features_df.csv".format(sid), index=False
+    # )
+
+    # Filter out the features we want
+    columns_to_keep = ['sid','SCR_PeakCount', 'mean_SCR_Amplitude','HR_mean','HR_std','ACC_INDEX','LFHF_frequency_power_ratio','HRV_SDNN','HRV_RMSSD','BVP_mean','BVP_std']
+    osa_features_df = domain_features_df[columns_to_keep]
+    osa_features_df.to_csv(
+        save_folder_dir + "/{}_domain_features_30sec_window.csv".format(sid), index=False
+    )
+    return osa_features_df
 
 def fe_whole_night_all_sids(info_dir, data_folder,save_folder_dir):
     """
