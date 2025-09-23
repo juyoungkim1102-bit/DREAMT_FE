@@ -1372,7 +1372,8 @@ def extract_domain_features_different_sampling_strategy(
     # )
 
     # Filter out the features we want
-    columns_to_keep = ['sid','SCR_PeakCount', 'mean_SCR_Amplitude','HR_mean','HR_std','HR_Coefficient_Variation','ACC_INDEX','LFHF_frequency_power_ratio','HRV_SDNN','HRV_RMSSD','BVP_mean','BVP_std']
+    # columns_to_keep = ['sid','SCR_PeakCount', 'mean_SCR_Amplitude','HR_mean','HR_std','HR_Coefficient_Variation','ACC_INDEX','LFHF_frequency_power_ratio','HRV_SDNN','HRV_RMSSD','BVP_mean','BVP_std']
+    columns_to_keep = ['sid','SCR_PeakCount', 'mean_SCR_Amplitude','HR_mean','HR_std','HR_Coefficient_Variation','LFHF_frequency_power_ratio','HRV_SDNN','HRV_RMSSD']
     osa_features_df = domain_features_df[columns_to_keep]
     osa_features_df.to_csv(
         save_folder_dir + "/domain_features_30sec_window_{}.csv".format(sid), index=False
@@ -1487,7 +1488,7 @@ def extract_30min_stats(df: pd.DataFrame, rows_per_30min: int = 60, save_folder_
     required = {
         'sid','SCR_PeakCount','mean_SCR_Amplitude','HR_mean','HR_std',
         'HR_Coefficient_Variation','LFHF_frequency_power_ratio',
-        'HRV_SDNN','HRV_RMSSD','BVP_mean','BVP_std'
+        'HRV_SDNN','HRV_RMSSD'
     }
     missing = sorted(required - set(df.columns))
 
@@ -1506,13 +1507,13 @@ def extract_30min_stats(df: pd.DataFrame, rows_per_30min: int = 60, save_folder_
         mean_SCR_Amplitude_max=('mean_SCR_Amplitude','max'),
 
         HR_mean_mean=('HR_mean','mean'),
-        HR_mean_std=('HR_mean','std'),
+        # HR_mean_std=('HR_mean','std'),
         HR_mean_max=('HR_mean','max'),
         HR_mean_min=('HR_mean','min'),
         HR_mean_range=('HR_mean', _range),
 
         HR_std_mean=('HR_std','mean'),
-        HR_std_range=('HR_std', _range),
+        # HR_std_range=('HR_std', _range),
 
         HR_Coefficient_Variation_mean=('HR_Coefficient_Variation','mean'),
         HR_Coefficient_Variation_max=('HR_Coefficient_Variation','max'),
@@ -1533,13 +1534,13 @@ def extract_30min_stats(df: pd.DataFrame, rows_per_30min: int = 60, save_folder_
         HRV_RMSSD_min=('HRV_RMSSD','min'),
         HRV_RMSSD_median=('HRV_RMSSD','median'),
 
-        BVP_mean_mean=('BVP_mean','mean'),
-        BVP_mean_max=('BVP_mean','max'),
-        BVP_mean_min=('BVP_mean','min'),
+        # BVP_mean_mean=('BVP_mean','mean'),
+        # BVP_mean_max=('BVP_mean','max'),
+        # BVP_mean_min=('BVP_mean','min'),
 
-        BVP_std_mean=('BVP_std','mean'),
-        BVP_std_max=('BVP_std','max'),
-        BVP_std_min=('BVP_std','min'),
+        # BVP_std_mean=('BVP_std','mean'),
+        # BVP_std_max=('BVP_std','max'),
+        # BVP_std_min=('BVP_std','min'),
     )
 
     # compute 0-based window index (every 60 rows = 30 min)
@@ -1615,9 +1616,9 @@ def main():
 
     error_sids = test_fe_all_subjects(
     #    Single
-        info_dir="../dataset/test_participant_info.csv",
-        data_folder="../dataset/testData_single",
-        save_folder_dir="../dataset/testFeatures_single"
+        info_dir="../dataset/test_participant_info_ten.csv",
+        data_folder="../dataset/testData_ten",
+        save_folder_dir="../dataset/testFeatures_ten"
 
 #        All
 #        info_dir="../dataset/participant_info.csv",
