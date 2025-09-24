@@ -954,7 +954,7 @@ def EDA_summary(segment_df):
     """
 
     eda = segment_df.loc[:, "EDA"].to_numpy()
-    sampling_rate = 4
+    sampling_rate = 64
     eda_signal = nk.signal_sanitize(eda)
 
     # Series check for non-default index
@@ -1303,7 +1303,7 @@ def extract_domain_features_different_sampling_strategy(
 
     offset = 0
     # New variables to hold upsampled feature values
-    hrv_sdnn, hrv_rmssd, lfhf_ratio = np.nan, np.nan, np.nan
+    hrv_sdnn, hrv_rmssd, hrv_pNN50, lf_power, hf_power, lfhf_ratio = np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
     # Different time windowing strategy
     window_hrv_freq = 300
     window_hrv_time = 60
@@ -1317,6 +1317,8 @@ def extract_domain_features_different_sampling_strategy(
             if end_hrv_freq <= df.shape[0]:
                 segment_df_hrv_freq = df.iloc[start_hrv_freq:end_hrv_freq].reset_index(drop=True)
                 features_hrv_freq, error_code = fe_per_segment(segment_df_hrv_freq, segment_seconds=window_hrv_freq)
+                lf_power = features_hrv_freq.get('LF_frequency_power', np.nan)
+                hf_power = features_hrv_freq.get('HF_frequency_power', np.nan)
                 lfhf_ratio = features_hrv_freq.get('LFHF_frequency_power_ratio', np.nan)
 
         # windowed features for hrv_sdnn & hrv_rmssd within window_hrv_time
@@ -1328,6 +1330,7 @@ def extract_domain_features_different_sampling_strategy(
                 features_hrv_time, error_code = fe_per_segment(segment_df_hrv_time, segment_seconds=window_hrv_time)
                 hrv_sdnn = features_hrv_time.get('HRV_SDNN', np.nan)
                 hrv_rmssd = features_hrv_time.get('HRV_RMSSD', np.nan)
+                hrv_pNN50 = features_hrv_time.get('HRV_pNN50', np.nan)
 
         # time window from default settings
         segment_df = df.iloc[
@@ -1359,9 +1362,12 @@ def extract_domain_features_different_sampling_strategy(
                 segment_df = segment_df.reset_index(drop=True)
                 segment_fe_dict, error_code = fe_per_segment(segment_df)
 
+        segment_fe_dict['LF_frequency_power'] = lf_power
+        segment_fe_dict['HF_frequency_power'] = hf_power
         segment_fe_dict['LFHF_frequency_power_ratio'] = lfhf_ratio
         segment_fe_dict['HRV_SDNN'] = hrv_sdnn
         segment_fe_dict['HRV_RMSSD'] = hrv_rmssd
+        segment_fe_dict['HRV_pNN50'] = hrv_pNN50
         domain_features_df.loc[i] = segment_fe_dict
 
     domain_features_df["sid"] = np.repeat(sid, num_segments)
@@ -1372,8 +1378,7 @@ def extract_domain_features_different_sampling_strategy(
     # )
 
     # Filter out the features we want
-    # columns_to_keep = ['sid','SCR_PeakCount', 'mean_SCR_Amplitude','HR_mean','HR_std','HR_Coefficient_Variation','ACC_INDEX','LFHF_frequency_power_ratio','HRV_SDNN','HRV_RMSSD','BVP_mean','BVP_std']
-    columns_to_keep = ['sid','SCR_PeakCount', 'mean_SCR_Amplitude','HR_mean','HR_std','HR_Coefficient_Variation','LFHF_frequency_power_ratio','HRV_SDNN','HRV_RMSSD']
+    columns_to_keep = ['sid','HR_std','HRV_SDNN','HRV_RMSSD', 'HRV_pNN50', 'LF_frequency_power', 'HF_frequency_power','LFHF_frequency_power_ratio','SCR_PeakCount', 'mean_SCR_Amplitude','TEMP_std']
     osa_features_df = domain_features_df[columns_to_keep]
     osa_features_df.to_csv(
         save_folder_dir + "/domain_features_30sec_window_{}.csv".format(sid), index=False
@@ -1447,35 +1452,6 @@ def fe_whole_night_all_sids(info_dir, data_folder,save_folder_dir):
     return fe_df
 
 def extract_30min_stats(df: pd.DataFrame, rows_per_30min: int = 60, save_folder_dir="./fe_dataframes_whole_study/") -> pd.DataFrame:
-    """
-    Aggregate 30-second feature rows into 30-minute windows.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Input with columns:
-        ['sid','SCR_PeakCount','mean_SCR_Amplitude','HR_mean','HR_std',
-         'HR_Coefficient_Variation','ACC_INDEX','LFHF_frequency_power_ratio',
-         'HRV_SDNN','HRV_RMSSD','BVP_mean','BVP_std'].
-        Each row summarizes a 30-second window.
-    rows_per_30min : int
-        Number of rows per 30-minute block. Default 60.
-
-    Returns
-    -------
-    pd.DataFrame
-        One row per (sid, 30-minute window) with the following aggregates:
-          - SCR_PeakCount: sum, mean
-          - mean_SCR_Amplitude: mean, max
-          - HR_mean: mean, std, max, min, range
-          - HR_std: mean, range
-          - HR_Coefficient_Variation: mean, max, min
-          - LFHF_frequency_power_ratio: mean, max, min, std
-          - HRV_SDNN: mean, max, min, median
-          - HRV_RMSSD: mean, max, min, median
-          - BVP_mean: mean, max, min
-          - BVP_std: mean, max, min
-    """
     df = df.copy()
 
     # Unique sid check
@@ -1486,61 +1462,54 @@ def extract_30min_stats(df: pd.DataFrame, rows_per_30min: int = 60, save_folder_
 
     # Validate columns (ACC_INDEX is allowed to be present but not aggregated)
     required = {
-        'sid','SCR_PeakCount','mean_SCR_Amplitude','HR_mean','HR_std',
-        'HR_Coefficient_Variation','LFHF_frequency_power_ratio',
-        'HRV_SDNN','HRV_RMSSD'
+        'sid','HR_std','HRV_SDNN','HRV_RMSSD', 'HRV_pNN50', 'LF_frequency_power', 'HF_frequency_power','LFHF_frequency_power_ratio','SCR_PeakCount', 'mean_SCR_Amplitude','TEMP_std'
     }
+
     missing = sorted(required - set(df.columns))
 
     if missing:
         raise KeyError(f"Missing required columns: {missing}")
 
-    def _range(s: pd.Series) -> float:
-        return float(np.nanmax(s) - np.nanmin(s))
+    def _iqr(s: pd.Series) -> float:
+        """Calculates the Interquartile Range (IQR)."""
+        return float(s.quantile(0.75) - s.quantile(0.25))
+
+    def _p90(s: pd.Series) -> float:
+        """Calculates the 90th percentile."""
+        return float(s.quantile(0.90))
 
     # Build named aggregations
     agg = dict(
-        SCR_PeakCount_sum=('SCR_PeakCount','sum'),
-        SCR_PeakCount_mean=('SCR_PeakCount','mean'),
+        HR_30secStd_30minMean=('HR_std', 'mean'),
+        HR_30secStd_30minMax=('HR_std', 'max'),
 
-        mean_SCR_Amplitude_mean=('mean_SCR_Amplitude','mean'),
-        mean_SCR_Amplitude_max=('mean_SCR_Amplitude','max'),
+        HRV_60secSDNN_30minMean=('HRV_SDNN', 'mean'),
+        HRV_60secSDNN_30minMax=('HRV_SDNN', 'max'),
 
-        HR_mean_mean=('HR_mean','mean'),
-        # HR_mean_std=('HR_mean','std'),
-        HR_mean_max=('HR_mean','max'),
-        HR_mean_min=('HR_mean','min'),
-        HR_mean_range=('HR_mean', _range),
+        HRV_60secRMSSD_30minMean=('HRV_RMSSD', 'mean'),
+        HRV_60secRMSSD_30minIQR=('HRV_RMSSD', _iqr),
 
-        HR_std_mean=('HR_std','mean'),
-        # HR_std_range=('HR_std', _range),
+        HRV_60secpNN50_30minMean=('HRV_pNN50', 'mean'),
+        HRV_60secpNN50_30minStd=('HRV_pNN50', 'std'),
+        HRV_60secpNN50_30minIQR=('HRV_pNN50', _iqr),
 
-        HR_Coefficient_Variation_mean=('HR_Coefficient_Variation','mean'),
-        HR_Coefficient_Variation_max=('HR_Coefficient_Variation','max'),
-        HR_Coefficient_Variation_min=('HR_Coefficient_Variation','min'),
+        HRV_300secLFPower_30minMean=('LF_frequency_power', 'mean'),
+        HRV_300secLFPower_30min90thp=('LF_frequency_power', _p90),
+        HRV_300secLFPower_30minStd=('LF_frequency_power', 'std'),
 
-        LFHF_frequency_power_ratio_mean=('LFHF_frequency_power_ratio','mean'),
-        LFHF_frequency_power_ratio_max=('LFHF_frequency_power_ratio','max'),
-        LFHF_frequency_power_ratio_min=('LFHF_frequency_power_ratio','min'),
-        LFHF_frequency_power_ratio_std=('LFHF_frequency_power_ratio','std'),
+        HRV_300secHFPower_30minMean=('HF_frequency_power', 'mean'),
+        HRV_300secHFPower_30minStd=('HF_frequency_power', 'std'),
 
-        HRV_SDNN_mean=('HRV_SDNN','mean'),
-        HRV_SDNN_max=('HRV_SDNN','max'),
-        HRV_SDNN_min=('HRV_SDNN','min'),
-        HRV_SDNN_median=('HRV_SDNN','median'),
+        HRV_300secLFHFPowerRatio_30minMean=('LFHF_frequency_power_ratio', 'mean'),
+        HRV_300secLFHFPowerRatio_30minStd=('LFHF_frequency_power_ratio', 'std'),
 
-        HRV_RMSSD_mean=('HRV_RMSSD','mean'),
-        HRV_RMSSD_max=('HRV_RMSSD','max'),
-        HRV_RMSSD_min=('HRV_RMSSD','min'),
-        HRV_RMSSD_median=('HRV_RMSSD','median'),
+        SCRCount_30secSum_30minMean=('SCR_PeakCount', 'mean'),
 
-        # BVP_mean_mean=('BVP_mean','mean'),
-        # BVP_mean_max=('BVP_mean','max'),
-        # BVP_mean_min=('BVP_mean','min'),
-
-        # BVP_std_mean=('BVP_std','mean'),
-        # BVP_std_max=('BVP_std','max'),
-        # BVP_std_min=('BVP_std','min'),
+        SCRAmplitude_30secMean_30minMean=('mean_SCR_Amplitude', 'mean'),
+        SCRAmplitude_30secMean_30minMax=('mean_SCR_Amplitude', 'max'),
+        
+        SkinTemperature_30secStd_30minMean=('TEMP_std', 'mean'),
+        SkinTemperature_30secStd_30minIQR=('TEMP_std', _iqr)
     )
 
     # compute 0-based window index (every 60 rows = 30 min)
