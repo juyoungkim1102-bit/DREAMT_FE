@@ -613,7 +613,7 @@ def preprocess_ALL_SIGNALS(df):
     preprocessed_df["BVP"] = bvp
     preprocessed_df["IBI"] = df.IBI
 
-    preprocessed_df = clean_IBI(preprocessed_df)
+    # preprocessed_df = clean_IBI(preprocessed_df)
 
     return preprocessed_df
 
@@ -1386,6 +1386,100 @@ def extract_domain_features_different_sampling_strategy(
     )
     return osa_features_df
 
+def _minmax_normalize(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    x = x.copy()
+    # robustly handle NaNs
+    if np.isnan(x).all():
+        return np.zeros_like(x)
+    # replace NaNs with segment mean to keep line continuous
+    nan_mask = np.isnan(x)
+    if nan_mask.any():
+        x[nan_mask] = np.nanmean(x)
+    xmin, xmax = float(np.min(x)), float(np.max(x))
+    denom = (xmax - xmin) if (xmax - xmin) > 1e-12 else 1.0
+    return (x - xmin) / denom
+
+def draw_graphs_HR_EDA_ACCIDX(
+    sid,
+    data_folder="/whole_dfs",
+    segment_seconds=3600,
+    overlap=False,
+    save_folder_dir="./fe_dataframes_whole_study/",
+):
+    """
+    1) Trim the initial contiguous 'Wake' ('W'/'Wake'/'WAKE') portion.
+    2) Split into 1-hour segments (discard any tail shorter than 1 hour).
+    3) For each segment:
+       - Normalize HR and EDA to [0, 1]
+       - Compute Movement = sqrt(ACC_X^2 + ACC_Y^2 + ACC_Z^2), normalize to [0, 1]
+       - Plot overlayed curves with right-side legend
+       - Save as '{sid}_{n}th_segment_graph_image.png' (1-based n)
+    """
+
+    # Ensure output folder
+    os.makedirs(save_folder_dir, exist_ok=True)
+
+    df_path = f"{data_folder}/{sid}_whole_df.csv"
+    df = pd.read_csv(df_path)
+    df = preprocess_ALL_SIGNALS(df)
+
+    # (1) Trim leading Wake & Praparation
+    ss = df["Sleep_Stage"].astype(str).fillna("")
+    wake_mask = ss.isin(["W","P"])
+    first_nonwake_idx = (~wake_mask).idxmax() if (~wake_mask).any() else None
+    if first_nonwake_idx is not None and wake_mask.iloc[0]:
+        df = df.iloc[first_nonwake_idx:].reset_index(drop=True)
+
+    # (2) Normalize the data first
+    df["HR_NORM"] = _minmax_normalize(df["HR"].to_numpy())
+
+    eda_signal = nk.signal_sanitize(df["EDA"].to_numpy())
+    if type(eda_signal) is pd.Series and type(eda_signal.index) != pd.RangeIndex:
+        eda_signal = eda_signal.reset_index(drop=True)
+    eda_clean = eda_signal
+    decomp = nk.eda_phasic(eda_clean, sampling_rate=64)
+    phasic = decomp["EDA_Phasic"].to_numpy()
+    scr_rect = np.clip(phasic, 0, None) #Phasic can dip below 0 after filtering. For strictly-positive SCR envelopes you can rectify
+    df["SCR_NORM"] = _minmax_normalize(scr_rect)
+
+    ax = df["ACC_X"].to_numpy()
+    ay = df["ACC_Y"].to_numpy()
+    az = df["ACC_Z"].to_numpy()
+    movement = np.sqrt(ax * ax + ay * ay + az * az)
+    df["MOVEMENT_NORM"] = _minmax_normalize(movement)
+
+    # (3) Segment into exact 1-hour chunks; drop remainder
+    fs = 64 #Hz
+    samples_per_segment = segment_seconds * fs
+    if df.shape[0] < samples_per_segment:
+        return  
+    num_segments = df.shape[0] // samples_per_segment
+
+    for seg_idx in tqdm(range(num_segments), desc=f"Plotting {sid}"):
+        start = seg_idx * samples_per_segment
+        end = (seg_idx + 1) * samples_per_segment
+        segment_df = df.iloc[start:end].reset_index(drop=True)
+
+        # (4) Plot the PRE-NORMALIZED series (sliced per segment)
+        plt.figure(figsize=(12, 4.5))
+        LINE_KW = dict(linewidth=0.9, alpha=0.6, antialiased=True)
+        plt.plot(segment_df["HR_NORM"].to_numpy(), label="HR (normalized)", color="blue", **LINE_KW)
+        plt.plot(segment_df["SCR_NORM"].to_numpy(), label="SCR (normalized)", color="red", **LINE_KW)
+        plt.plot(segment_df["MOVEMENT_NORM"].to_numpy(), label="Movement (normalized)", color="green", **LINE_KW)
+
+        plt.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
+        plt.xlabel(f"Samples @ {fs} Hz (1 hour window)")
+        # Use ordinal label for the segment number
+        plt.title(f"{sid} – 1 hour Segment no {seg_idx+1}")
+        plt.tight_layout()
+
+        out_path = os.path.join(
+            save_folder_dir, f"{sid}_no{seg_idx+1}_segment_graph_image.png"
+        )
+        plt.savefig(out_path, dpi=150, bbox_inches="tight")
+        plt.close()
+
 def fe_whole_night_all_sids(info_dir, data_folder,save_folder_dir):
     """
     Compute features for the whole night of E4 data for all subjects
@@ -1597,19 +1691,39 @@ def test_fe_all_subjects(info_dir, data_folder, save_folder_dir):
             error_sids.append(sid)
     return error_sids
 
+def draw_graphs_apneahypopnea_detection(info_dir, data_folder, save_folder_dir):
+
+    list_sids = pd.read_csv(info_dir).SID.to_list()
+    error_sids = []
+    for sid in list_sids:
+        print(sid)
+        try:
+            draw_graphs_HR_EDA_ACCIDX(sid, data_folder=data_folder, segment_seconds=3600, save_folder_dir= save_folder_dir)
+        except:
+            print("ERROR {}: {}".format(sid,traceback.format_exc()))
+            error_sids.append(sid)
+    return error_sids    
+
 def main():
 
-    error_sids = test_fe_all_subjects(
+    error_sids = draw_graphs_apneahypopnea_detection(
     #    Single
-        info_dir="../dataset/test_participant_info_two.csv",
-        data_folder="../dataset/testData_two",
-        save_folder_dir="../dataset/testFeatures_two"
+        info_dir="../dataset/test_participant_info_single.csv",
+        data_folder="../dataset/testData_single",
+        save_folder_dir="../dataset/testFeatures_single"
+    )
+
+    # error_sids = test_fe_all_subjects(
+    #    Single
+        # info_dir="../dataset/test_participant_info_two.csv",
+        # data_folder="../dataset/testData_two",
+        # save_folder_dir="../dataset/testFeatures_two"
 
 #        All
 #        info_dir="../dataset/participant_info.csv",
 #        data_folder="../dataset/data_64Hz",
 #        save_folder_dir="../dataset/features_30secWindow_All
-    )
+    # )
     return 0
 
 
