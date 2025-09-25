@@ -1378,7 +1378,8 @@ def extract_domain_features_different_sampling_strategy(
     # )
 
     # Filter out the features we want
-    columns_to_keep = ['sid','HR_std','HRV_SDNN','HRV_RMSSD', 'HRV_pNN50', 'LF_frequency_power', 'HF_frequency_power','LFHF_frequency_power_ratio','SCR_PeakCount', 'mean_SCR_Amplitude','TEMP_std']
+    columns_to_keep = ['sid','BVP_mean','BVP_max','BVP_min','HR_Coefficient_Variation','HRV_SDNN','HRV_RMSSD', 'HRV_pNN50', 
+    'LF_frequency_power', 'HF_frequency_power','LFHF_frequency_power_ratio','SCR_PeakCount', 'mean_SCR_Amplitude','TEMP_std']
     osa_features_df = domain_features_df[columns_to_keep]
     osa_features_df.to_csv(
         save_folder_dir + "/domain_features_30sec_window_{}.csv".format(sid), index=False
@@ -1462,7 +1463,8 @@ def extract_30min_stats(df: pd.DataFrame, rows_per_30min: int = 60, save_folder_
 
     # Validate columns (ACC_INDEX is allowed to be present but not aggregated)
     required = {
-        'sid','HR_std','HRV_SDNN','HRV_RMSSD', 'HRV_pNN50', 'LF_frequency_power', 'HF_frequency_power','LFHF_frequency_power_ratio','SCR_PeakCount', 'mean_SCR_Amplitude','TEMP_std'
+        'sid','BVP_mean','BVP_max','BVP_min','HR_Coefficient_Variation','HRV_SDNN','HRV_RMSSD', 'HRV_pNN50', 
+    'LF_frequency_power', 'HF_frequency_power','LFHF_frequency_power_ratio','SCR_PeakCount', 'mean_SCR_Amplitude','TEMP_std'
     }
 
     missing = sorted(required - set(df.columns))
@@ -1480,36 +1482,50 @@ def extract_30min_stats(df: pd.DataFrame, rows_per_30min: int = 60, save_folder_
 
     # Build named aggregations
     agg = dict(
-        HR_30secStd_30minMean=('HR_std', 'mean'),
-        HR_30secStd_30minMax=('HR_std', 'max'),
+        BVP_Mean_Mean=('BVP_mean', 'mean'),
+        BVP_Max_Mean=('BVP_max', 'mean'),
+        BVP_Min_Mean=('BVP_min', 'mean'), 
+        BVP_Std_Mean = ('BVP_std', 'mean'),  
 
-        HRV_60secSDNN_30minMean=('HRV_SDNN', 'mean'),
-        HRV_60secSDNN_30minMax=('HRV_SDNN', 'max'),
+        CVHR_Mean=('HR_Coefficient_Variation', 'mean'),
+        CVHR_Max=('HR_Coefficient_Variation', 'max'),
+        CVHR_Min=('HR_Coefficient_Variation', 'min'),
 
-        HRV_60secRMSSD_30minMean=('HRV_RMSSD', 'mean'),
-        HRV_60secRMSSD_30minIQR=('HRV_RMSSD', _iqr),
+        SDNN_Mean=('HRV_SDNN', 'mean'),
+        SDNN_Max=('HRV_SDNN', 'max'),
+        SDNN_Min=('HRV_SDNN', 'min'),
 
-        HRV_60secpNN50_30minMean=('HRV_pNN50', 'mean'),
-        HRV_60secpNN50_30minStd=('HRV_pNN50', 'std'),
-        HRV_60secpNN50_30minIQR=('HRV_pNN50', _iqr),
+        RMSSD_Mean=('HRV_RMSSD', 'mean'),
+        RMSSD_Max=('HRV_RMSSD', 'max'),
+        RMSSD_Min=('HRV_RMSSD', 'min'),
 
-        HRV_300secLFPower_30minMean=('LF_frequency_power', 'mean'),
-        HRV_300secLFPower_30min90thp=('LF_frequency_power', _p90),
-        HRV_300secLFPower_30minStd=('LF_frequency_power', 'std'),
+        pNN50_Mean=('HRV_pNN50', 'mean'),
+        pNN50_Std=('HRV_pNN50', 'std'),
+        pNN50_Max=('HRV_pNN50', 'max'),
+        pNN50_Min=('HRV_pNN50', 'min'),
 
-        HRV_300secHFPower_30minMean=('HF_frequency_power', 'mean'),
-        HRV_300secHFPower_30minStd=('HF_frequency_power', 'std'),
-
-        HRV_300secLFHFPowerRatio_30minMean=('LFHF_frequency_power_ratio', 'mean'),
-        HRV_300secLFHFPowerRatio_30minStd=('LFHF_frequency_power_ratio', 'std'),
-
-        SCRCount_30secSum_30minMean=('SCR_PeakCount', 'mean'),
-
-        SCRAmplitude_30secMean_30minMean=('mean_SCR_Amplitude', 'mean'),
-        SCRAmplitude_30secMean_30minMax=('mean_SCR_Amplitude', 'max'),
+        LFPower_Mean=('LF_frequency_power', 'mean'),
+        LFPower_Min=('LF_frequency_power', 'min'),
+        LFPower_Max=('LF_frequency_power', 'max'),
+        LFPower_Std=('LF_frequency_power', 'std'),
         
-        SkinTemperature_30secStd_30minMean=('TEMP_std', 'mean'),
-        SkinTemperature_30secStd_30minIQR=('TEMP_std', _iqr)
+        HFPower_Mean=('HF_frequency_power', 'mean'),
+        HFPower_Min=('HF_frequency_power', 'min'),
+        HFPower_Max=('HF_frequency_power', 'max'),
+        HFPower_Std=('HF_frequency_power', 'std'),
+        
+        LFHFPowerRatio_Mean=('LFHF_frequency_power_ratio', 'mean'),
+        LFHFPowerRatio_Min=('LFHF_frequency_power_ratio', 'min'),
+        LFHFPowerRatio_Max=('LFHF_frequency_power_ratio', 'max'),
+        LFHFPowerRatio_Std=('LFHF_frequency_power_ratio', 'std'),
+        
+        SCRCount_Sum_Mean=('SCR_PeakCount', 'mean'),
+
+        SCRAmplitude_Mean_Mean=('mean_SCR_Amplitude', 'mean'),
+        SCRAmplitude_Mean_Max=('mean_SCR_Amplitude', 'max'),
+        
+        SkinTemperature_Std_Mean=('TEMP_std', 'mean'),
+        SkinTemperature_Std_IQR=('TEMP_std', _iqr)
     )
 
     # compute 0-based window index (every 60 rows = 30 min)
@@ -1585,9 +1601,9 @@ def main():
 
     error_sids = test_fe_all_subjects(
     #    Single
-        info_dir="../dataset/test_participant_info_ten.csv",
-        data_folder="../dataset/testData_ten",
-        save_folder_dir="../dataset/testFeatures_ten"
+        info_dir="../dataset/test_participant_info_two.csv",
+        data_folder="../dataset/testData_two",
+        save_folder_dir="../dataset/testFeatures_two"
 
 #        All
 #        info_dir="../dataset/participant_info.csv",
