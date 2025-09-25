@@ -46,6 +46,7 @@ import heartpy as hp
 
 from collections import Counter
 import traceback
+from matplotlib.ticker import MultipleLocator, FuncFormatter
 
 # define global variables, for the DREAMT dataset
 ALL_LABELS = [
@@ -1463,10 +1464,16 @@ def draw_graphs_HR_EDA_ACCIDX(
 
         # (4) Plot the PRE-NORMALIZED series (sliced per segment)
         plt.figure(figsize=(12, 4.5))
-        LINE_KW = dict(linewidth=0.9, alpha=0.6, antialiased=True)
+        LINE_KW = dict(linewidth=1.0, alpha=0.6, antialiased=True)
         plt.plot(segment_df["HR_NORM"].to_numpy(), label="HR (normalized)", color="blue", **LINE_KW)
         plt.plot(segment_df["SCR_NORM"].to_numpy(), label="SCR (normalized)", color="red", **LINE_KW)
         plt.plot(segment_df["MOVEMENT_NORM"].to_numpy(), label="Movement (normalized)", color="green", **LINE_KW)
+
+        # Time axis in minutes from actual sample count
+        ax = plt.gca()
+        ax.xaxis.set_major_locator(MultipleLocator(38400))   # major ticks every 10 min
+        ax.xaxis.set_minor_locator(MultipleLocator(3840))    # minor ticks every 1 min
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(x)}"))  # label as integers
 
         plt.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
         plt.xlabel(f"Samples @ {fs} Hz (1 hour window)")
@@ -1708,9 +1715,12 @@ def main():
 
     error_sids = draw_graphs_apneahypopnea_detection(
     #    Single
-        info_dir="../dataset/test_participant_info_single.csv",
-        data_folder="../dataset/testData_single",
-        save_folder_dir="../dataset/testFeatures_single"
+        # info_dir="../dataset/test_participant_info_single.csv",
+        # data_folder="../dataset/testData_single",
+        # save_folder_dir="../dataset/testFeatures_single"
+        info_dir="../dataset/test_participant_info_two.csv",
+        data_folder="../dataset/testData_two",
+        save_folder_dir="../dataset/testFeatures_two"
     )
 
     # error_sids = test_fe_all_subjects(
