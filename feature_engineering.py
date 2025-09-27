@@ -1461,6 +1461,7 @@ def draw_graphs_HR_EDA_ACCIDX(
 
     # (3) Segment into exact 1-hour chunks; drop remainder
     fs = 64 #Hz
+    samples_per_min = fs * 60
     samples_per_segment = segment_seconds * fs
     if df.shape[0] < samples_per_segment:
         return  
@@ -1481,12 +1482,33 @@ def draw_graphs_HR_EDA_ACCIDX(
         # Time axis in minutes from actual sample count
         ax = plt.gca()
         ax.set_ylim(0,1)
-        ax.xaxis.set_major_locator(MultipleLocator(38400))   # major ticks every 10 min
-        ax.xaxis.set_minor_locator(MultipleLocator(3840))    # minor ticks every 1 min
-        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(x)}"))  # label as integers
+        # === (1) X-axis in MINUTES ===
+        # Major tick every 10 minutes, minor tick every 1 minute
+        ax.xaxis.set_major_locator(MultipleLocator(5 * samples_per_min))
+        ax.xaxis.set_minor_locator(MultipleLocator(1 * samples_per_min))
+
+        # Show tick labels as integer minutes
+        ax.xaxis.set_major_formatter(
+            FuncFormatter(lambda x, pos: f"{int(round(x / samples_per_min))}")
+        )
+
+        # === (2) Dotted vertical lines each minute (minor ticks) ===
+        ax.grid(True, which="minor", axis="x", linestyle=":", linewidth=0.6, alpha=0.6)
+        ax.grid(True, which="major", axis="x", linestyle=":", linewidth=0.6, alpha=0.6)
+
+        # Keep major grid subtle if you want (optional)
+        # ax.grid(True, which="major", axis="x", linestyle="--", linewidth=0.6, alpha=0.3)
+
+        # === (3) Y-axis tick every 0.1 ===
+        ax.set_yticks(np.arange(0.0, 1.0 + 1e-9, 0.1))
+
+        # ax.xaxis.set_major_locator(MultipleLocator(38400))   # major ticks every 10 min
+        # ax.xaxis.set_minor_locator(MultipleLocator(3840))    # minor ticks every 1 min
+        # ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(x)}"))  # label as integers
 
         plt.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
-        plt.xlabel(f"Indices of Samples @ {fs} Hz (1 hour window)")
+        plt.xlabel("Time (minutes) within 1-hour segment")
+        # plt.xlabel(f"Indices of Samples @ {fs} Hz (1 hour window)")
         # Use ordinal label for the segment number
         plt.title(f"{sid} – 1 hour Segment no {seg_idx+1}")
         plt.tight_layout()
