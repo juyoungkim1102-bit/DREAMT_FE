@@ -1441,7 +1441,16 @@ def draw_graphs_HR_EDA_ACCIDX(
     eda_clean = eda_signal
     decomp = nk.eda_phasic(eda_clean, sampling_rate=64)
     phasic = decomp["EDA_Phasic"].to_numpy()
-    scr_rect = np.clip(phasic, 0, None) #Phasic can dip below 0 after filtering. For strictly-positive SCR envelopes you can rectify
+    # Clip bottom - Phasic can dip below 0 after filtering. For strictly-positive SCR envelopes you can rectify
+    scr_rect = np.clip(phasic, 0, None) 
+
+    # Clip top - Values over 9995/10000th percentile are too large making the SCR so small.
+    # p99 = np.nanpercentile(scr_rect, 99.95)
+    # scr_rect = np.clip(scr_rect, 0, p99)
+
+    # Clip top - 30 times the average, so that the average is at 0.03.
+    upper = 30.0*np.nanmean(scr_rect)
+    scr_rect = np.clip(scr_rect, 0, upper) if upper is not None else scr_rect
     df["SCR_NORM"] = _minmax_normalize(scr_rect)
 
     ax = df["ACC_X"].to_numpy()
@@ -1464,19 +1473,20 @@ def draw_graphs_HR_EDA_ACCIDX(
 
         # (4) Plot the PRE-NORMALIZED series (sliced per segment)
         plt.figure(figsize=(12, 4.5))
-        LINE_KW = dict(linewidth=1.0, alpha=0.6, antialiased=True)
+        LINE_KW = dict(linewidth=0.8, alpha=0.6, antialiased=True)
         plt.plot(segment_df["HR_NORM"].to_numpy(), label="HR (normalized)", color="blue", **LINE_KW)
         plt.plot(segment_df["SCR_NORM"].to_numpy(), label="SCR (normalized)", color="red", **LINE_KW)
         plt.plot(segment_df["MOVEMENT_NORM"].to_numpy(), label="Movement (normalized)", color="green", **LINE_KW)
 
         # Time axis in minutes from actual sample count
         ax = plt.gca()
+        ax.set_ylim(0,1)
         ax.xaxis.set_major_locator(MultipleLocator(38400))   # major ticks every 10 min
         ax.xaxis.set_minor_locator(MultipleLocator(3840))    # minor ticks every 1 min
         ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(x)}"))  # label as integers
 
         plt.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
-        plt.xlabel(f"Samples @ {fs} Hz (1 hour window)")
+        plt.xlabel(f"Indices of Samples @ {fs} Hz (1 hour window)")
         # Use ordinal label for the segment number
         plt.title(f"{sid} – 1 hour Segment no {seg_idx+1}")
         plt.tight_layout()
@@ -1714,13 +1724,20 @@ def draw_graphs_apneahypopnea_detection(info_dir, data_folder, save_folder_dir):
 def main():
 
     error_sids = draw_graphs_apneahypopnea_detection(
-    #    Single
+        # Single
         # info_dir="../dataset/test_participant_info_single.csv",
         # data_folder="../dataset/testData_single",
         # save_folder_dir="../dataset/testFeatures_single"
+        
+        # Two
         info_dir="../dataset/test_participant_info_two.csv",
         data_folder="../dataset/testData_two",
         save_folder_dir="../dataset/testFeatures_two"
+
+       #ALL
+    #    info_dir="../dataset/participant_info.csv",
+    #    data_folder="../dataset/data_64Hz",
+    #    save_folder_dir="../dataset/testFeatures_all"
     )
 
     # error_sids = test_fe_all_subjects(
